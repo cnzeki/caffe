@@ -19,6 +19,12 @@ void BasePrefetchingDataLayer<Dtype>::Forward_gpu(
     top[1]->ReshapeLike(prefetch_current_->label_);
     top[1]->set_gpu_data(prefetch_current_->label_.mutable_gpu_data());
   }
+  if (this->output_weights_) {
+    // Reshape to loaded weights.
+    top[2]->ReshapeLike(prefetch_current_->weight_);
+    // Copy the weights.
+    top[2]->set_gpu_data(prefetch_current_->weight_.mutable_gpu_data());
+  }
 }
 
 INSTANTIATE_LAYER_GPU_FORWARD(BasePrefetchingDataLayer);

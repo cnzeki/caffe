@@ -1,5 +1,6 @@
 #if defined(_MSC_VER)
 #include <process.h>
+#include <direct.h>
 #define getpid() _getpid()
 #endif
 
@@ -27,6 +28,7 @@ Caffe& Caffe::Get() {
 // random seeding
 int64_t cluster_seedgen(void) {
   int64_t s, seed, pid;
+#ifndef _MSC_VER
   FILE* f = fopen("/dev/urandom", "rb");
   if (f && fread(&seed, 1, sizeof(seed), f) == sizeof(seed)) {
     fclose(f);
@@ -34,27 +36,50 @@ int64_t cluster_seedgen(void) {
   }
 
   LOG(INFO) << "System entropy source not available, "
-              "using fallback algorithm to generate seed instead.";
+    "using fallback algorithm to generate seed instead.";
   if (f)
     fclose(f);
+#endif // !_MSC_VER
 
   pid = getpid();
   s = time(NULL);
   seed = std::abs(((s * 181) * ((pid - 83) * 359)) % 104729);
   return seed;
 }
-
+#ifdef _MSC_VER
+void initGlog() {
+  FLAGS_log_dir = ".\\log\\";
+  _mkdir(FLAGS_log_dir.c_str());
+  std::string LOG_INFO_FILE;
+  std::string LOG_WARNING_FILE;
+  std::string LOG_ERROR_FILE;
+  std::string LOG_FATAL_FILE;
+  LOG_INFO_FILE = FLAGS_log_dir + "INFO";
+  google::SetLogFilenameExtension(".txt");
+  google::SetLogDestination(google::GLOG_INFO, LOG_INFO_FILE.c_str());
+  LOG_WARNING_FILE = FLAGS_log_dir + "WARNING";
+  google::SetLogDestination(google::GLOG_WARNING, LOG_WARNING_FILE.c_str());
+  LOG_ERROR_FILE = FLAGS_log_dir + "ERROR";
+  google::SetLogDestination(google::GLOG_ERROR, LOG_ERROR_FILE.c_str());
+  LOG_FATAL_FILE = FLAGS_log_dir + "FATAL";
+  google::SetLogDestination(google::GLOG_FATAL, LOG_FATAL_FILE.c_str());
+}
+#endif
 
 void GlobalInit(int* pargc, char*** pargv) {
   // Google flags.
   ::gflags::ParseCommandLineFlags(pargc, pargv, true);
+  
+  // Windows port of glogs doesn't have this function built
+#if !defined(_MSC_VER)
   // Google logging.
   ::google::InitGoogleLogging(*(pargv)[0]);
   // Provide a backtrace on segfault.
-
-  // Windows port of glogs doesn't have this function built
-#if !defined(_MSC_VER)
   ::google::InstallFailureSignalHandler();
+#else
+  initGlog();
+  // Google logging.
+  ::google::InitGoogleLogging(*(pargv)[0]);
 #endif
 }
 

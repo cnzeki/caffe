@@ -9,18 +9,18 @@
 namespace caffe {
 
 template <typename Dtype>
-void Blob<Dtype>::Reshape(const int num, const int channels, const int height,
+bool Blob<Dtype>::Reshape(const int num, const int channels, const int height,
     const int width) {
   vector<int> shape(4);
   shape[0] = num;
   shape[1] = channels;
   shape[2] = height;
   shape[3] = width;
-  Reshape(shape);
+  return Reshape(shape);
 }
 
 template <typename Dtype>
-void Blob<Dtype>::Reshape(const vector<int>& shape) {
+bool Blob<Dtype>::Reshape(const vector<int>& shape) {
   CHECK_LE(shape.size(), kMaxBlobAxes);
   count_ = 1;
   shape_.resize(shape.size());
@@ -41,22 +41,26 @@ void Blob<Dtype>::Reshape(const vector<int>& shape) {
     capacity_ = count_;
     data_.reset(new SyncedMemory(capacity_ * sizeof(Dtype)));
     diff_.reset(new SyncedMemory(capacity_ * sizeof(Dtype)));
+    return true;
+  }
+  else {
+    return false;
   }
 }
 
 template <typename Dtype>
-void Blob<Dtype>::Reshape(const BlobShape& shape) {
+bool Blob<Dtype>::Reshape(const BlobShape& shape) {
   CHECK_LE(shape.dim_size(), kMaxBlobAxes);
   vector<int> shape_vec(shape.dim_size());
   for (int i = 0; i < shape.dim_size(); ++i) {
     shape_vec[i] = shape.dim(i);
   }
-  Reshape(shape_vec);
+  return Reshape(shape_vec);
 }
 
 template <typename Dtype>
-void Blob<Dtype>::ReshapeLike(const Blob<Dtype>& other) {
-  Reshape(other.shape());
+bool Blob<Dtype>::ReshapeLike(const Blob<Dtype>& other) {
+  return Reshape(other.shape());
 }
 
 template <typename Dtype>
@@ -96,6 +100,18 @@ void Blob<Dtype>::set_cpu_data(Dtype* data) {
     diff_.reset(new SyncedMemory(size));
   }
   data_->set_cpu_data(data);
+}
+
+template <typename Dtype>
+void Blob<Dtype>::set_cpu_diff(Dtype* diff) {
+  CHECK(diff);
+  diff_->set_cpu_data(diff);
+}
+
+template <typename Dtype>
+void Blob<Dtype>::set_gpu_diff(Dtype* diff) {
+  CHECK(diff);
+  diff_->set_gpu_data(diff);
 }
 
 template <typename Dtype>
@@ -403,6 +419,33 @@ void Blob<Dtype>::scale_diff(Dtype scale_factor) {
     return;
   default:
     LOG(FATAL) << "Unknown SyncedMemory head state: " << diff_->head();
+  }
+}
+
+template <typename Dtype>
+void Blob<Dtype>::Clamp(Dtype lower_bound, Dtype upper_bound) {
+  Dtype* data;
+  if (!data_) { return; }
+  switch (data_->head()) {
+  case SyncedMemory::HEAD_AT_CPU:
+    data = mutable_cpu_data();
+    for (int i = 0; i < count_; i++) {
+      data[i] = std::min(std::max(data[i], lower_bound), upper_bound);
+    }
+    return;
+  case SyncedMemory::HEAD_AT_GPU:
+  case SyncedMemory::SYNCED:
+#ifndef CPU_ONLY
+    data = mutable_gpu_data();
+    caffe_gpu_clamp(count_, lower_bound, upper_bound, data);
+    return;
+#else
+    NO_GPU;
+#endif
+  case SyncedMemory::UNINITIALIZED:
+    return;
+  default:
+    LOG(FATAL) << "Unknown SyncedMemory head state: " << data_->head();
   }
 }
 

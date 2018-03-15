@@ -25,6 +25,12 @@ void BaseDataLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
   } else {
     output_labels_ = true;
   }
+  if (top.size() == 3) {
+    output_weights_ = true;
+  }
+  else {
+    output_weights_ = false;
+  }
   data_transformer_.reset(
       new DataTransformer<Dtype>(transform_param_, this->phase_));
   data_transformer_->InitRand();
@@ -58,6 +64,9 @@ void BasePrefetchingDataLayer<Dtype>::LayerSetUp(
     if (this->output_labels_) {
       prefetch_[i]->label_.mutable_cpu_data();
     }
+    if (this->output_weights_) {
+      prefetch_[i]->weight_.mutable_cpu_data();
+    }
   }
 #ifndef CPU_ONLY
   if (Caffe::mode() == Caffe::GPU) {
@@ -65,6 +74,9 @@ void BasePrefetchingDataLayer<Dtype>::LayerSetUp(
       prefetch_[i]->data_.mutable_gpu_data();
       if (this->output_labels_) {
         prefetch_[i]->label_.mutable_gpu_data();
+      }
+      if (this->output_weights_) {
+        prefetch_[i]->weight_.mutable_gpu_data();
       }
     }
   }
@@ -93,6 +105,9 @@ void BasePrefetchingDataLayer<Dtype>::InternalThreadEntry() {
         batch->data_.data().get()->async_gpu_push(stream);
         if (this->output_labels_) {
           batch->label_.data().get()->async_gpu_push(stream);
+        }
+        if (this->output_weights_) {
+          batch->weight_.data().get()->async_gpu_push(stream);
         }
         CUDA_CHECK(cudaStreamSynchronize(stream));
       }
@@ -123,6 +138,11 @@ void BasePrefetchingDataLayer<Dtype>::Forward_cpu(
     // Reshape to loaded labels.
     top[1]->ReshapeLike(prefetch_current_->label_);
     top[1]->set_cpu_data(prefetch_current_->label_.mutable_cpu_data());
+  }
+  if (this->output_weights_) {
+    // Reshape to loaded weights_.
+    top[2]->ReshapeLike(prefetch_current_->weight_);
+    top[2]->set_cpu_data(prefetch_current_->weight_.mutable_cpu_data());
   }
 }
 

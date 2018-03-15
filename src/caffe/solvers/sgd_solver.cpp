@@ -78,6 +78,27 @@ void SGDSolver<Dtype>::PreSolve() {
 }
 
 template <typename Dtype>
+void SGDSolver<Dtype>::ClipWeights() {
+  const Dtype clip_weights = this->param_.clip_weights();
+  if (clip_weights < 0) { return; }
+  const vector<Blob<Dtype>*>& net_params = this->net_->learnable_params();
+  Dtype sumsq_data = 0;
+  for (int i = 0; i < net_params.size(); ++i) {
+    sumsq_data += net_params[i]->sumsq_data();
+  }
+  const Dtype l2norm_data = std::sqrt(sumsq_data);
+  if (l2norm_data > clip_weights) {
+    Dtype scale_factor = clip_weights / l2norm_data;
+    LOG(INFO) << "Weight clipping: scaling down weights (L2 norm "
+        << l2norm_data << " > " << clip_weights << ") "
+        << "by scale factor " << scale_factor;
+    for (int i = 0; i < net_params.size(); ++i) {
+      net_params[i]->scale_data(scale_factor);
+    }
+  }
+}
+
+template <typename Dtype>
 void SGDSolver<Dtype>::ClipGradients() {
   const Dtype clip_gradients = this->param_.clip_gradients();
   if (clip_gradients < 0) { return; }
@@ -99,6 +120,17 @@ void SGDSolver<Dtype>::ClipGradients() {
 }
 
 template <typename Dtype>
+void SGDSolver<Dtype>::ClampWeights() {
+  if (!this->param_.has_clamp_weights_lower() && !this->param_.has_clamp_weights_upper()) { return; }
+  const Dtype lower_bound = this->param_.clamp_weights_lower();
+  const Dtype upper_bound = this->param_.clamp_weights_upper();
+  const vector<Blob<Dtype>*>& net_params = this->net_->learnable_params();
+  for (int i = 0; i < net_params.size(); ++i) {
+    net_params[i]->Clamp(lower_bound, upper_bound);
+  }
+}
+
+template <typename Dtype>
 void SGDSolver<Dtype>::ApplyUpdate() {
   Dtype rate = GetLearningRate();
   if (this->param_.display() && this->iter_ % this->param_.display() == 0) {
@@ -112,6 +144,62 @@ void SGDSolver<Dtype>::ApplyUpdate() {
     Regularize(param_id);
     ComputeUpdateValue(param_id, rate);
   }
+  ClipWeights();
+  ClampWeights();
+#ifdef _MSC_VER
+  if (Caffe::root_solver() && this->param_.display() && this->iter_ % this->param_.display() == 0) {
+    //string gradient_norm = "layer blob norm:";
+    //for (int k = 0; k < this->net_->blob_names().size(); k++) {
+    //  if (this->net_->blob_names()[k].find("Convolution") != string::npos
+    //      || this->net_->blob_names()[k].find("InnerProduct") != string::npos
+    //      || this->net_->blob_names()[k].find("conv") != string::npos
+    //      || this->net_->blob_names()[k].find("fc") != string::npos
+    //      || this->net_->blob_names()[k].find("ip") != string::npos) {
+    //    gradient_norm += std::to_string(this->net_->blobs()[k]->asum_diff() / this->net_->blobs()[k]->count()) + " ";
+    //  }
+    //}
+    //if (gradient_norm.size() > 20) LOG(INFO) << gradient_norm;
+    string scale_layers = "scale layer:";
+    for (int k = 0; k < this->net_->layers().size(); k++) {
+      if (strstr(this->net_->layers()[k]->type(), "Scale") != NULL
+          && this->net_->layers()[k]->blobs().size() > 0) {
+        scale_layers += std::to_string(this->net_->layers()[k]->blobs()[0]->asum_data() / this->net_->layers()[k]->blobs()[0]->count()) + " ";
+      }
+    }
+    if (scale_layers.size() > 20) LOG(INFO) << scale_layers;
+    string parameter_layers = "parameter layer:";
+    for (int k = 0; k < this->net_->layers().size(); k++) {
+      if (strstr(this->net_->layers()[k]->type(), "Parameter") != NULL
+        && this->net_->layers()[k]->blobs().size() > 0) {
+        parameter_layers += std::to_string(this->net_->layers()[k]->blobs()[0]->asum_data() / this->net_->layers()[k]->blobs()[0]->count()) + " ";
+      }
+    }
+    if (parameter_layers.size() > 20) LOG(INFO) << parameter_layers;
+    string prelu_layers = "prelu slope:";
+    for (int k = 0; k < this->net_->layers().size(); k++) {
+      if (strstr(this->net_->layers()[k]->type(), "PReLU") != NULL
+          && this->net_->layers()[k]->blobs().size() > 0) {
+        prelu_layers += std::to_string(this->net_->layers()[k]->blobs()[0]->asum_data() / this->net_->layers()[k]->blobs()[0]->count()) + " ";
+      }
+    }
+    if (prelu_layers.size() > 20) LOG(INFO) << prelu_layers;
+    string weight_gradient_norm = "weight diff/data:";
+    for (int k = 0; k < this->net_->layers().size(); k++) {
+      if (strstr(this->net_->layers()[k]->type(), "Convolution") != NULL
+          || strstr(this->net_->layers()[k]->type(), "InnerProduct") != NULL
+          || strstr(this->net_->layers()[k]->type(), "InnerDistance") != NULL) {
+        if (this->net_->layers()[k]->blobs().size() > 0) {
+          Blob<Dtype> diff_data_ratio;
+          diff_data_ratio.ReshapeLike(*this->net_->layers()[k]->blobs()[0]);
+          caffe_div(this->net_->layers()[k]->blobs()[0]->count(), this->net_->layers()[k]->blobs()[0]->cpu_diff(),
+                    this->net_->layers()[k]->blobs()[0]->cpu_data(), diff_data_ratio.mutable_cpu_data());
+          weight_gradient_norm += std::to_string(diff_data_ratio.asum_data() / diff_data_ratio.count()) + " ";
+        }
+      }
+    }
+    if (weight_gradient_norm.size() > 20) LOG(INFO) << weight_gradient_norm;
+  }
+#endif
   this->net_->Update();
 }
 

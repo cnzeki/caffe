@@ -32,7 +32,7 @@ class Blob {
   explicit Blob(const vector<int>& shape);
 
   /// @brief Deprecated; use <code>Reshape(const vector<int>& shape)</code>.
-  void Reshape(const int num, const int channels, const int height,
+  bool Reshape(const int num, const int channels, const int height,
       const int width);
   /**
    * @brief Change the dimensions of the blob, allocating new memory if
@@ -48,9 +48,9 @@ class Blob {
    * an error; either Net::Forward or Net::Reshape need to be called to
    * propagate the new input shape to higher layers.
    */
-  void Reshape(const vector<int>& shape);
-  void Reshape(const BlobShape& shape);
-  void ReshapeLike(const Blob& other);
+  bool Reshape(const vector<int>& shape);
+  bool Reshape(const BlobShape& shape);
+  bool ReshapeLike(const Blob& other);
   inline string shape_string() const {
     ostringstream stream;
     for (int i = 0; i < shape_.size(); ++i) {
@@ -218,9 +218,11 @@ class Blob {
 
   const Dtype* cpu_data() const;
   void set_cpu_data(Dtype* data);
+  void set_cpu_diff(Dtype* data);
+  void set_gpu_data(Dtype* data);
+  void set_gpu_diff(Dtype* data);
   const int* gpu_shape() const;
   const Dtype* gpu_data() const;
-  void set_gpu_data(Dtype* data);
   const Dtype* cpu_diff() const;
   const Dtype* gpu_diff() const;
   Dtype* mutable_cpu_data();
@@ -239,6 +241,8 @@ class Blob {
   Dtype sumsq_data() const;
   /// @brief Compute the sum of squares (L2 norm squared) of the diff.
   Dtype sumsq_diff() const;
+
+  void Clamp(Dtype lower_bound, Dtype upper_bound);
 
   /// @brief Scale the blob data by a constant factor.
   void scale_data(Dtype scale_factor);
